@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: This is a template to create the Networking infrastructure
+
+Parameters:
+  VPCCIDR:
+    Description: CIDR Block of the VPC
+    Type: String
+    Default: 10.0.0.0/16
+
+  PrivateSubnet1CIDR:
+    Description: CIDR Block of the first private subnet
+    Type: String
+    Default: 10.0.0.0/24
+
+  PublicSubnet1CIDR:
+    Description: CIDR Block of the first public subnet
+    Type: String
+    Default: 10.0.1.0/24
+
+  PrivateSubnet2CIDR:
+    Description: CIDR Block of the second private subnet
+    Type: String
+    Default: 10.0.2.0/24
+
+  PublicSubnet2CIDR:
+    Description: CIDR Block of the second public subnet
+    Type: String
+    Default: 10.0.3.0/24
+
+Resources:
+  # VPC:
+  #   Type: AWS::EC2::VPC
+  #   Properties:
+
+  # PrivateSubnet1:
+  #   Type: AWS::EC2::Subnet
+  #   Properties:
+
+  # PrivateSubnet2:
+  #   Type: AWS::EC2::Subnet
+  #   Properties:
+  
+  # PublicSubnet1:
+  #   Type: AWS::EC2::Subnet
+  #   Properties:
+
+  # PublicSubnet2:
+  #   Type: AWS::EC2::Subnet
+  #   Properties:
+
+  # InternetGateway:
+  #   Type: AWS::EC2::InternetGateway
+  #   Properties:
+
+  # InternetGatewayVPCAttachment:
+  #   Type: AWS::EC2::VPCGatewayAttachment
+  #   Properties:
+
+  # PublicRouteTable:
+  #   Type: AWS::EC2::RouteTable
+  #   Properties:
+
+  # PublicRoute:
+  #   Type: AWS::EC2::Route
+  #   Properties:
+
+  # PublicSubnet1RouteTableAssociation:
+  #   Type: AWS::EC2::SubnetRouteTableAssociation
+  #   Properties:
+  
+  # PublicSubnet2RouteTableAssociation:
+  #   Type: AWS::EC2::SubnetRouteTableAssociation
+  #   Properties:
+
+  # EIP1:
+  #   Type: AWS::EC2::EIP
+  #   Properties:
+  #     Tags:
+
+  # NatGateway1:
+  #   Type: AWS::EC2::NatGateway
+  #   Properties:
+
+  # EIP2:
+  #   Type: AWS::EC2::EIP
+  #   Properties:
+
+  # NatGateway2:
+  #   Type: AWS::EC2::NatGateway
+  #   Properties:
+  
+  # PrivateRouteTable1:
+  #   Type: AWS::EC2::RouteTable
+  #   Properties:
+
+  # PrivateRoute1:
+  #   Type: AWS::EC2::Route
+  #   Properties:
+
+  # PrivateSubnet1RouteTableAssociation:
+  #   Type: AWS::EC2::SubnetRouteTableAssociation
+  #   Properties:
+
+  # PrivateRouteTable2:
+  #   Type: AWS::EC2::RouteTable
+  #   Properties:
+
+  # PrivateRoute2:
+  #   Type: AWS::EC2::Route
+  #   Properties:
+
+  # PrivateSubnet2RouteTableAssociation:
+  #   Type: AWS::EC2::SubnetRouteTableAssociation
+  #   Properties:
+
+Outputs:
+  VPC:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: "HA-VPC"
+
+  PublicSubnet1:
+    Description: Public Subnet 1 ID
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: "HA-Public-Subnet-1"
+
+  PublicSubnet2:
+    Description: Public Subnet 2 ID
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: "HA-Public-Subnet-2"
+
+  PrivateSubnet1:
+    Description: Private Subnet 1 ID
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: "HA-Private-Subnet-1"
+
+  PrivateSubnet2:
+    Description: Private Subnet 2 ID
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: "HA-Private-Subnet-2"
