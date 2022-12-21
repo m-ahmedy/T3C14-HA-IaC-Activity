@@ -1,0 +1,250 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: This is a template to create the HA Servers infrastructure
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: my-website-982503247633
+
+  AmiID:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/20.04/stable/current/amd64/hvm/ebs-gp2/ami-id
+
+  CPUPolicyTargetValue:
+    Type: Number
+    Default: 30
+
+  MinCapacity:
+    Type: String
+    Default: "2"
+
+  MaxCapacity:
+    Type: String
+    Default: "4"
+
+  DesiredCapacity:
+    Type: String
+    Default: "2"
+
+Resources:
+  JumpboxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue HA-VPC
+      GroupDescription: Allow SSH from anywhere
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue HA-VPC
+      GroupDescription: Allow HTTP from anywhere
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !ImportValue HA-VPC
+      GroupDescription: Allow SSH from Jumpbox and HTTP from the ALB
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref JumpboxSecurityGroup
+
+  # IAM
+  EC2S3AccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+
+  S3AccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: S3AccessPolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${BucketName}/*"
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+              - s3:GetBucketLocation
+            Resource: !Sub "arn:aws:s3:::${BucketName}"
+      Roles:
+        - !Ref EC2S3AccessRole
+
+  WebServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2S3AccessRole
+
+  # ASG
+  WebServerASGLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref AmiID
+      KeyName: us-west-2-key
+      SecurityGroups:
+        - !Ref WebServerSecurityGroup
+      IamInstanceProfile: !Ref WebServerInstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 10
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt update -y
+          apt install apache2 awscli -y
+
+          systemctl start apache2.service
+          systemctl enable apache2.service
+
+          aws s3 sync s3://${BucketName} /var/www/html
+
+  WebServerASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: true
+    Properties:
+      LaunchConfigurationName: !Ref WebServerASGLaunchConfiguration
+      MinSize: !Ref MinCapacity
+      MaxSize: !Ref MaxCapacity
+      DesiredCapacity: !Ref DesiredCapacity
+
+      VPCZoneIdentifier:
+        - !ImportValue HA-Private-Subnet-1
+        - !ImportValue HA-Private-Subnet-2
+
+      TargetGroupARNs:
+        - !Ref ELBTargetGroup
+
+  WebServerASGCPUScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref WebServerASG
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: !Ref CPUPolicyTargetValue
+
+  # ELB
+  ELBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !ImportValue HA-VPC
+      Protocol: HTTP
+      Port: 80
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 8
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+
+  ELBLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - !ImportValue HA-Public-Subnet-1
+        - !ImportValue HA-Public-Subnet-2
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+
+  ELBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ELBTargetGroup
+      LoadBalancerArn: !Ref ELBLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ELBListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ELBTargetGroup
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - "/*"
+      ListenerArn: !Ref ELBListener
+      Priority: 1
+
+  # Jumpbox
+  Jumpbox1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref AmiID
+      KeyName: us-west-2-key
+      SecurityGroupIds:
+        - !Ref JumpboxSecurityGroup
+      SubnetId: !ImportValue HA-Public-Subnet-1
+      Tags:
+        - Key: Name
+          Value: HA-Jumpbox-1
+
+  Jumpbox2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref AmiID
+      KeyName: us-west-2-key
+      SecurityGroupIds:
+        - !Ref JumpboxSecurityGroup
+      SubnetId: !ImportValue HA-Public-Subnet-2
+      Tags:
+        - Key: Name
+          Value: HA-Jumpbox-2
+
+Outputs:
+  Jumpbox1PublicIPAddress:
+    Description: The Public IP Address of Jumpbox 1
+    Value: !GetAtt Jumpbox1.PublicIp
+
+  Jumpbox2PublicIPAddress:
+    Description: The Public IP Address of Jumpbox 2
+    Value: !GetAtt Jumpbox2.PublicIp
+
+  LoadBalancerDNSName:
+    Description: DNS Name of the web application
+    Value: !Join
+      - ""
+      - - "http://"
+        - !GetAtt ELBLoadBalancer.DNSName
+    Export:
+      Name: HA-APP-ELB-DNS-Name
